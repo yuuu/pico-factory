@@ -2,41 +2,319 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
   pico-factory-backend
+  IoT Real-time Dashboard Backend
 
-  Sample SAM Template for pico-factory-backend
-
-# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
   Function:
-    Timeout: 3
-    MemorySize: 512
+    Timeout: 30
+    MemorySize: 256
+    Runtime: ruby3.4
+    Architectures:
+      - x86_64
+  Api:
+    Cors:
+      AllowMethods: "'POST,OPTIONS'"
+      AllowHeaders: "'Content-Type,Authorization'"
+      AllowOrigin: "'*'"
 
 Resources:
-  HelloWorldFunction:
-    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+
+  # ─────────────────────────────────────────
+  # DynamoDB: IoT Data Storage
+  # ─────────────────────────────────────────
+  RecordsTable:
+    Type: AWS::DynamoDB::Table
     Properties:
-      CodeUri: hello_world/
+      TableName: !Sub "${AWS::StackName}-records"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: device_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: N
+      KeySchema:
+        - AttributeName: device_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ─────────────────────────────────────────
+  # DynamoDB: WebSocket Connection Management
+  # ─────────────────────────────────────────
+  ConnectionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${AWS::StackName}-connections"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: connectionId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connectionId
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ─────────────────────────────────────────
+  # API Gateway V2: WebSocket API
+  # ─────────────────────────────────────────
+  WebSocketApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "${AWS::StackName}-websocket"
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: "$request.body.action"
+
+  WsHandlerIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WsHandlerFunction.Arn}/invocations"
+
+  ConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: $connect
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${WsHandlerIntegration}"
+
+  DisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: $disconnect
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${WsHandlerIntegration}"
+
+  WebSocketStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref WebSocketApi
+      StageName: prod
+      AutoDeploy: true
+
+  WsHandlerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WsHandlerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*/*"
+
+  # ─────────────────────────────────────────
+  # Lambda: WebSocket Connection Management
+  # ─────────────────────────────────────────
+  WsHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ws_handler/
       Handler: app.lambda_handler
-      Runtime: ruby3.4
-      Architectures:
-        - x86_64
+      Environment:
+        Variables:
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConnectionsTable
+
+  # ─────────────────────────────────────────
+  # Lambda: DynamoDB Streams to WebSocket Push
+  # ─────────────────────────────────────────
+  StreamNotifierFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: stream_notifier/
+      Handler: app.lambda_handler
+      Environment:
+        Variables:
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          RECORDS_TABLE: !Ref RecordsTable
+          WEBSOCKET_ENDPOINT: !Sub "https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ConnectionsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref RecordsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConnectionsTable
+        - Statement:
+            - Effect: Allow
+              Action: execute-api:ManageConnections
+              Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*"
       Events:
-        HelloWorld:
-          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+        DynamoDBStream:
+          Type: DynamoDB
           Properties:
-            Path: /hello
-            Method: get
+            Stream: !GetAtt RecordsTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 10
+            BisectBatchOnFunctionError: true
+
+  # ─────────────────────────────────────────
+  # Lambda: REST API (IoT Publish / DynamoDB Clear)
+  # ─────────────────────────────────────────
+  ApiHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: api_handler/
+      Handler: app.lambda_handler
+      Environment:
+        Variables:
+          RECORDS_TABLE: !Ref RecordsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RecordsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - iot:Publish
+                - iot:DescribeEndpoint
+              Resource: "*"
+      Events:
+        Publish:
+          Type: Api
+          Properties:
+            Path: /publish
+            Method: post
+        Clear:
+          Type: Api
+          Properties:
+            Path: /clear
+            Method: post
+
+  # ─────────────────────────────────────────
+  # Lambda: IoT Rule to DynamoDB Writer
+  # ─────────────────────────────────────────
+  IotHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: iot_handler/
+      Handler: app.lambda_handler
+      Environment:
+        Variables:
+          RECORDS_TABLE: !Ref RecordsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RecordsTable
+
+  IotHandlerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref IotHandlerFunction
+      Principal: iot.amazonaws.com
+      SourceArn: !GetAtt IoTRule.Arn
+
+  # ─────────────────────────────────────────
+  # IoT Rule: MQTT to Lambda to DynamoDB
+  # ─────────────────────────────────────────
+  IoTRule:
+    Type: AWS::IoT::TopicRule
+    Properties:
+      RuleName: PicoFactoryDeviceRule
+      TopicRulePayload:
+        Sql: "SELECT *, topic(3) AS device_id, (timestamp() / 1000 + 86400) AS ttl FROM 'pico-factory/device/+'"
+        RuleDisabled: false
+        Actions:
+          - Lambda:
+              FunctionArn: !GetAtt IotHandlerFunction.Arn
+
+  # ─────────────────────────────────────────
+  # S3: Frontend Static File Hosting
+  # ─────────────────────────────────────────
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AWS::StackName}-frontend-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${FrontendBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${FrontendDistribution}"
+
+  # ─────────────────────────────────────────
+  # CloudFront: OAC + Distribution
+  # ─────────────────────────────────────────
+  FrontendOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  FrontendDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        PriceClass: PriceClass_All
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+            OriginAccessControlId: !GetAtt FrontendOAC.Id
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+          AllowedMethods:
+            - GET
+            - HEAD
+          Compress: true
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
 
 Outputs:
-  # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
-  # Find out more about other implicit resources you can reference within SAM
-  # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
-  HelloWorldApi:
-    Description: "API Gateway endpoint URL for Prod stage for Hello World function"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/Prod/hello/"
-  HelloWorldFunction:
-    Description: "Hello World Lambda Function ARN"
-    Value: !GetAtt HelloWorldFunction.Arn
-  HelloWorldFunctionIamRole:
-    Description: "Implicit IAM Role created for Hello World function"
-    Value: !GetAtt HelloWorldFunctionRole.Arn
+  WebSocketUrl:
+    Description: "WebSocket API Endpoint URL"
+    Value: !Sub "wss://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+
+  RestApiEndpoint:
+    Description: "REST API Endpoint URL"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+
+  FrontendUrl:
+    Description: "CloudFront Dashboard URL"
+    Value: !Sub "https://${FrontendDistribution.DomainName}"
+
+  FrontendBucketName:
+    Description: "Frontend S3 Bucket Name (file upload destination)"
+    Value: !Ref FrontendBucket
+
+  RecordsTableName:
+    Description: "Records DynamoDB Table Name"
+    Value: !Ref RecordsTable
+
+  ConnectionsTableName:
+    Description: "Connections DynamoDB Table Name"
+    Value: !Ref ConnectionsTable

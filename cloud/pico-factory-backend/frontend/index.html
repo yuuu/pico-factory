@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="ja" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pico Factory Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231e293b'/%3E%3Cpath fill='%2338bdf8' d='M16 6a3 3 0 0 1 3 3v1h1a3 3 0 0 1 0 6h-1v1a3 3 0 0 1-6 0v-1h-1a3 3 0 0 1 0-6h1V9a3 3 0 0 1 3-3zm0 2a1 1 0 0 0-1 1v2.17A3.001 3.001 0 0 0 13.17 14H11a1 1 0 0 0 0 2h2.17A3.001 3.001 0 0 0 15 18.83V21a1 1 0 0 0 2 0v-2.17A3.001 3.001 0 0 0 18.83 16H21a1 1 0 0 0 0-2h-2.17A3.001 3.001 0 0 0 17 11.17V9a1 1 0 0 0-1-1zm0 7a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm-6 14h12v2H10z'/%3E%3C/svg%3E" />
+
+  <!-- Tailwind CSS (Play CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          animation: {
+            'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'count-update': 'countUpdate 0.4s ease-out',
+          },
+          keyframes: {
+            countUpdate: {
+              '0%': { transform: 'scale(1.15)', opacity: '0.7' },
+              '100%': { transform: 'scale(1)', opacity: '1' },
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Flowbite CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flowbite@3.1.2/dist/flowbite.min.css" />
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+    * { font-family: 'Inter', sans-serif; }
+
+    .count-animate { animation: countUpdate 0.4s ease-out; }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .status-dot.connected {
+      background-color: #10b981;
+      box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.25);
+      animation: pulse-green 2s infinite;
+    }
+    .status-dot.disconnected {
+      background-color: #ef4444;
+    }
+    .status-dot.connecting {
+      background-color: #f59e0b;
+      animation: pulse-yellow 1s infinite;
+    }
+
+    @keyframes pulse-green {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+      50% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    }
+    @keyframes pulse-yellow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+      50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+    }
+
+    .glass-card {
+      background: rgba(255, 255, 255, 0.03);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    .log-entry {
+      animation: slideIn 0.3s ease-out;
+    }
+    @keyframes slideIn {
+      from { transform: translateX(-8px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    .btn-start {
+      background: linear-gradient(135deg, #059669, #10b981);
+      transition: all 0.2s;
+    }
+    .btn-start:hover:not(:disabled) {
+      background: linear-gradient(135deg, #047857, #059669);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+    }
+    .btn-stop {
+      background: linear-gradient(135deg, #dc2626, #ef4444);
+      transition: all 0.2s;
+    }
+    .btn-stop:hover:not(:disabled) {
+      background: linear-gradient(135deg, #b91c1c, #dc2626);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+    }
+    .btn-clear {
+      background: linear-gradient(135deg, #d97706, #f59e0b);
+      transition: all 0.2s;
+    }
+    .btn-clear:hover:not(:disabled) {
+      background: linear-gradient(135deg, #b45309, #d97706);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
+    }
+
+    button:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+
+    .count-display {
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+  </style>
+</head>
+
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+
+  <!-- ─── Navbar ─── -->
+  <nav class="border-b border-gray-800 bg-gray-900/80 backdrop-blur-sm sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center">
+            <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
+            </svg>
+          </div>
+          <span class="text-lg font-bold text-white">Pico Factory</span>
+          <span class="text-xs text-gray-500 font-medium uppercase tracking-wider hidden sm:block">Dashboard</span>
+        </div>
+
+        <div class="flex items-center gap-4">
+          <!-- Connection Status Badge -->
+          <div id="status-badge" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-800 border border-gray-700">
+            <span class="status-dot disconnected" id="status-dot"></span>
+            <span id="status-text" class="text-xs font-medium text-gray-400">Disconnected</span>
+          </div>
+
+          <!-- Settings Button -->
+          <button
+            onclick="document.getElementById('settings-modal').classList.remove('hidden')"
+            class="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition-colors border border-gray-700"
+            title="設定"
+          >
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ─── Main Content ─── -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+    <!-- ─── Top Stats Grid ─── -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+
+      <!-- Count Card (main) -->
+      <div class="md:col-span-2 glass-card rounded-2xl p-8 relative overflow-hidden">
+        <div class="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-indigo-600/5 pointer-events-none"></div>
+        <div class="relative">
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <p class="text-sm font-medium text-gray-400 uppercase tracking-wider">Total Detections</p>
+              <p class="text-xs text-gray-600 mt-0.5">リアルタイム計測数</p>
+            </div>
+            <div class="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center border border-blue-500/20">
+              <svg class="w-6 h-6 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+          </div>
+
+          <div class="flex items-end gap-4">
+            <span id="count-display" class="count-display text-8xl font-black tabular-nums leading-none">0</span>
+            <div class="mb-3">
+              <span id="count-delta" class="hidden text-sm font-semibold px-2 py-1 rounded-lg"></span>
+            </div>
+          </div>
+
+          <p id="last-updated" class="text-sm text-gray-600 mt-4">-- 更新待ち --</p>
+        </div>
+      </div>
+
+      <!-- Info Cards (right column) -->
+      <div class="flex flex-col gap-4">
+        <!-- Uptime / Connection Time -->
+        <div class="glass-card rounded-xl p-5">
+          <div class="flex items-center gap-3 mb-2">
+            <div class="w-8 h-8 bg-emerald-500/10 rounded-lg flex items-center justify-center border border-emerald-500/20">
+              <svg class="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <span class="text-xs font-medium text-gray-400 uppercase tracking-wider">Session</span>
+          </div>
+          <p id="session-time" class="text-2xl font-bold text-white tabular-nums">00:00:00</p>
+          <p class="text-xs text-gray-600 mt-1">接続継続時間</p>
+        </div>
+
+        <!-- Message count -->
+        <div class="glass-card rounded-xl p-5">
+          <div class="flex items-center gap-3 mb-2">
+            <div class="w-8 h-8 bg-purple-500/10 rounded-lg flex items-center justify-center border border-purple-500/20">
+              <svg class="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+            </div>
+            <span class="text-xs font-medium text-gray-400 uppercase tracking-wider">Messages</span>
+          </div>
+          <p id="message-count" class="text-2xl font-bold text-white tabular-nums">0</p>
+          <p class="text-xs text-gray-600 mt-1">受信 WebSocket メッセージ数</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Controls ─── -->
+    <div class="glass-card rounded-2xl p-6 mb-8">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-5 flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+        </svg>
+        デバイス制御
+      </h2>
+      <div class="flex flex-wrap gap-4">
+        <!-- Start Button -->
+        <button
+          id="btn-start"
+          onclick="publishAction('start')"
+          class="btn-start flex items-center gap-2.5 px-6 py-3 rounded-xl text-white font-semibold text-sm"
+        >
+          <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
+          </svg>
+          開始
+        </button>
+
+        <!-- Stop Button -->
+        <button
+          id="btn-stop"
+          onclick="publishAction('stop')"
+          class="btn-stop flex items-center gap-2.5 px-6 py-3 rounded-xl text-white font-semibold text-sm"
+        >
+          <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd" />
+          </svg>
+          停止
+        </button>
+
+        <!-- Clear Button -->
+        <button
+          id="btn-clear"
+          onclick="confirmClear()"
+          class="btn-clear flex items-center gap-2.5 px-6 py-3 rounded-xl text-white font-semibold text-sm"
+        >
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          クリア
+        </button>
+      </div>
+
+      <!-- Action Feedback -->
+      <div id="action-feedback" class="hidden mt-4 flex items-center gap-2 text-sm">
+        <div id="feedback-icon" class="w-5 h-5"></div>
+        <span id="feedback-text"></span>
+      </div>
+    </div>
+
+    <!-- ─── Chart + Event Log ─── -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+      <!-- Count History Chart -->
+      <div class="glass-card rounded-2xl p-6">
+        <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-5 flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
+          カウント推移
+        </h2>
+        <div class="h-48">
+          <canvas id="count-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- Event Log -->
+      <div class="glass-card rounded-2xl p-6">
+        <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-5 flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+          </svg>
+          イベントログ
+        </h2>
+        <div id="event-log" class="space-y-2 overflow-y-auto max-h-48 pr-1">
+          <p class="text-xs text-gray-600 text-center py-4">イベントなし</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ─── Settings Modal ─── -->
+  <div id="settings-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div class="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-lg">
+      <div class="flex items-center justify-between p-6 border-b border-gray-800">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 bg-blue-500/10 rounded-lg flex items-center justify-center border border-blue-500/20">
+            <svg class="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </div>
+          <h3 class="text-lg font-semibold text-white">接続設定</h3>
+        </div>
+        <button onclick="document.getElementById('settings-modal').classList.add('hidden')" class="text-gray-500 hover:text-white transition-colors p-1">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="p-6 space-y-5">
+        <div>
+          <label class="block text-sm font-medium text-gray-300 mb-2">WebSocket URL</label>
+          <input
+            id="ws-url-input"
+            type="text"
+            placeholder="wss://{api-id}.execute-api.{region}.amazonaws.com/prod"
+            class="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-600"
+          />
+          <p class="text-xs text-gray-600 mt-1.5">SAM デプロイ後の WebSocketUrl 出力値</p>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-300 mb-2">REST API URL</label>
+          <input
+            id="api-url-input"
+            type="text"
+            placeholder="https://{api-id}.execute-api.{region}.amazonaws.com/Prod"
+            class="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-600"
+          />
+          <p class="text-xs text-gray-600 mt-1.5">SAM デプロイ後の RestApiEndpoint 出力値</p>
+        </div>
+
+        <div class="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4 text-xs text-blue-300/80">
+          <p class="font-semibold mb-1 flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
+            デプロイ後の確認方法
+          </p>
+          <code class="block bg-gray-900/50 rounded p-2 mt-1 font-mono text-xs">sam deploy --guided</code>
+          <p class="mt-2">コマンド実行後の "Outputs" セクションに URL が表示されます</p>
+        </div>
+      </div>
+
+      <div class="flex gap-3 p-6 pt-0">
+        <button
+          onclick="saveSettings()"
+          class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 px-4 rounded-xl text-sm transition-colors"
+        >
+          保存して接続
+        </button>
+        <button
+          onclick="document.getElementById('settings-modal').classList.add('hidden')"
+          class="px-4 py-3 rounded-xl text-sm font-medium text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 transition-colors border border-gray-700"
+        >
+          キャンセル
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Clear Confirm Modal ─── -->
+  <div id="clear-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div class="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-sm">
+      <div class="p-6 text-center">
+        <div class="w-14 h-14 bg-yellow-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-yellow-500/20">
+          <svg class="w-7 h-7 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+        <h3 class="text-lg font-bold text-white mb-2">レコードをクリア</h3>
+        <p class="text-sm text-gray-400">DynamoDB の records テーブルにある全データを削除します。この操作は元に戻せません。</p>
+      </div>
+      <div class="flex gap-3 p-6 pt-0">
+        <button
+          onclick="clearRecords()"
+          class="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white font-semibold py-3 px-4 rounded-xl text-sm transition-colors"
+        >
+          削除する
+        </button>
+        <button
+          onclick="document.getElementById('clear-modal').classList.add('hidden')"
+          class="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 font-semibold py-3 px-4 rounded-xl text-sm transition-colors border border-gray-700"
+        >
+          キャンセル
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── JavaScript ─── -->
+  <script>
+    // ─── State ──────────────────────────────────────
+    let ws = null;
+    let wsUrl = '';
+    let apiUrl = '';
+    let prevCount = 0;
+    let sessionStartTime = null;
+    let sessionTimer = null;
+    let messageCount = 0;
+    let countHistory = [];
+    let timeHistory = [];
+    let chart = null;
+
+    const MAX_LOG_ENTRIES = 50;
+    const MAX_CHART_POINTS = 30;
+
+    // ─── Init ────────────────────────────────────────
+    window.addEventListener('load', () => {
+      wsUrl = localStorage.getItem('pf_ws_url') || '';
+      apiUrl = localStorage.getItem('pf_api_url') || '';
+
+      document.getElementById('ws-url-input').value = wsUrl;
+      document.getElementById('api-url-input').value = apiUrl;
+
+      initChart();
+
+      if (wsUrl) {
+        connectWebSocket();
+      } else {
+        // 設定モーダルを自動表示
+        document.getElementById('settings-modal').classList.remove('hidden');
+        addLog('設定モーダルを開きました。WebSocket URL と REST API URL を入力してください。', 'info');
+      }
+    });
+
+    // ─── Settings ────────────────────────────────────
+    function saveSettings() {
+      const newWsUrl = document.getElementById('ws-url-input').value.trim();
+      const newApiUrl = document.getElementById('api-url-input').value.trim();
+
+      if (!newWsUrl || !newApiUrl) {
+        alert('WebSocket URL と REST API URL の両方を入力してください。');
+        return;
+      }
+
+      wsUrl = newWsUrl;
+      apiUrl = newApiUrl;
+      localStorage.setItem('pf_ws_url', wsUrl);
+      localStorage.setItem('pf_api_url', apiUrl);
+
+      document.getElementById('settings-modal').classList.add('hidden');
+      addLog('設定を保存しました。接続を開始します...', 'info');
+
+      disconnectWebSocket();
+      connectWebSocket();
+    }
+
+    // ─── WebSocket ────────────────────────────────────
+    function connectWebSocket() {
+      if (!wsUrl) return;
+
+      setStatus('connecting');
+      addLog('WebSocket 接続中... ' + wsUrl, 'info');
+
+      try {
+        ws = new WebSocket(wsUrl);
+      } catch (e) {
+        setStatus('disconnected');
+        addLog('接続エラー: ' + e.message, 'error');
+        return;
+      }
+
+      ws.onopen = () => {
+        setStatus('connected');
+        sessionStartTime = Date.now();
+        startSessionTimer();
+        addLog('WebSocket 接続確立', 'success');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          messageCount++;
+          document.getElementById('message-count').textContent = messageCount.toLocaleString();
+
+          if (typeof data.count === 'number') {
+            updateCount(data.count);
+          }
+        } catch (e) {
+          addLog('メッセージ解析エラー: ' + e.message, 'error');
+        }
+      };
+
+      ws.onclose = (event) => {
+        setStatus('disconnected');
+        stopSessionTimer();
+        addLog(`WebSocket 切断 (code: ${event.code})`, 'warning');
+
+        // Auto-reconnect after 5 seconds
+        if (wsUrl) {
+          addLog('5 秒後に再接続します...', 'info');
+          setTimeout(() => {
+            if (wsUrl) connectWebSocket();
+          }, 5000);
+        }
+      };
+
+      ws.onerror = () => {
+        addLog('WebSocket エラーが発生しました', 'error');
+      };
+    }
+
+    function disconnectWebSocket() {
+      if (ws) {
+        ws.onclose = null; // prevent auto-reconnect
+        ws.close();
+        ws = null;
+      }
+      stopSessionTimer();
+      setStatus('disconnected');
+    }
+
+    // ─── Count Update ─────────────────────────────────
+    function updateCount(count) {
+      const display = document.getElementById('count-display');
+      const delta = count - prevCount;
+      const deltaEl = document.getElementById('count-delta');
+
+      display.textContent = count.toLocaleString();
+      display.classList.remove('count-animate');
+      void display.offsetWidth; // reflow
+      display.classList.add('count-animate');
+
+      if (delta !== 0) {
+        deltaEl.textContent = (delta > 0 ? '+' : '') + delta;
+        deltaEl.className = `text-sm font-semibold px-2 py-1 rounded-lg ${delta > 0 ? 'text-emerald-400 bg-emerald-400/10' : 'text-red-400 bg-red-400/10'}`;
+        deltaEl.classList.remove('hidden');
+        setTimeout(() => deltaEl.classList.add('hidden'), 3000);
+      }
+
+      const now = new Date();
+      document.getElementById('last-updated').textContent =
+        `最終更新: ${now.toLocaleTimeString('ja-JP')}`;
+
+      addLog(`カウント更新: ${prevCount} → ${count} (${delta >= 0 ? '+' : ''}${delta})`, 'data');
+
+      prevCount = count;
+      updateChart(count, now);
+    }
+
+    // ─── Chart ────────────────────────────────────────
+    function initChart() {
+      const ctx = document.getElementById('count-chart').getContext('2d');
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [{
+            label: 'Count',
+            data: [],
+            borderColor: 'rgb(99, 102, 241)',
+            backgroundColor: 'rgba(99, 102, 241, 0.08)',
+            borderWidth: 2,
+            pointRadius: 3,
+            pointBackgroundColor: 'rgb(99, 102, 241)',
+            fill: true,
+            tension: 0.4,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 300 },
+          plugins: { legend: { display: false } },
+          scales: {
+            x: {
+              grid: { color: 'rgba(255,255,255,0.04)' },
+              ticks: { color: '#6b7280', font: { size: 10 }, maxRotation: 0 }
+            },
+            y: {
+              grid: { color: 'rgba(255,255,255,0.04)' },
+              ticks: { color: '#6b7280', font: { size: 10 } },
+              beginAtZero: true
+            }
+          }
+        }
+      });
+    }
+
+    function updateChart(count, time) {
+      const label = time.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      chart.data.labels.push(label);
+      chart.data.datasets[0].data.push(count);
+
+      if (chart.data.labels.length > MAX_CHART_POINTS) {
+        chart.data.labels.shift();
+        chart.data.datasets[0].data.shift();
+      }
+      chart.update();
+    }
+
+    // ─── API Calls ────────────────────────────────────
+    async function publishAction(action) {
+      if (!apiUrl) {
+        showFeedback('error', 'REST API URL が設定されていません。設定画面で入力してください。');
+        return;
+      }
+
+      setButtonsDisabled(true);
+      showFeedback('loading', `"${action === 'start' ? '開始' : '停止'}" コマンドを送信中...`);
+
+      try {
+        const resp = await fetch(`${apiUrl}/publish`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action }),
+        });
+
+        const data = await resp.json();
+        if (resp.ok) {
+          showFeedback('success', `コマンド送信成功: ${data.message}`);
+          addLog(`Action 送信: ${action}`, 'action');
+        } else {
+          showFeedback('error', `エラー: ${data.error || resp.statusText}`);
+        }
+      } catch (e) {
+        showFeedback('error', `通信エラー: ${e.message}`);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
+    function confirmClear() {
+      document.getElementById('clear-modal').classList.remove('hidden');
+    }
+
+    async function clearRecords() {
+      document.getElementById('clear-modal').classList.add('hidden');
+
+      if (!apiUrl) {
+        showFeedback('error', 'REST API URL が設定されていません。');
+        return;
+      }
+
+      setButtonsDisabled(true);
+      showFeedback('loading', 'レコードを削除中...');
+
+      try {
+        const resp = await fetch(`${apiUrl}/clear`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          showFeedback('success', `クリア完了: ${data.message}`);
+          addLog('レコードをクリアしました', 'action');
+        } else {
+          showFeedback('error', `エラー: ${data.error || resp.statusText}`);
+        }
+      } catch (e) {
+        showFeedback('error', `通信エラー: ${e.message}`);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
+    // ─── Status / UI Helpers ──────────────────────────
+    function setStatus(status) {
+      const dot = document.getElementById('status-dot');
+      const text = document.getElementById('status-text');
+      dot.className = `status-dot ${status}`;
+
+      const labels = { connected: '接続中', disconnected: '未接続', connecting: '接続中...' };
+      text.textContent = labels[status] || status;
+      text.className = {
+        connected: 'text-xs font-medium text-emerald-400',
+        disconnected: 'text-xs font-medium text-red-400',
+        connecting: 'text-xs font-medium text-yellow-400',
+      }[status] || 'text-xs font-medium text-gray-400';
+    }
+
+    function setButtonsDisabled(disabled) {
+      ['btn-start', 'btn-stop', 'btn-clear'].forEach(id => {
+        document.getElementById(id).disabled = disabled;
+      });
+    }
+
+    function showFeedback(type, message) {
+      const feedback = document.getElementById('action-feedback');
+      const icon = document.getElementById('feedback-icon');
+      const text = document.getElementById('feedback-text');
+
+      feedback.classList.remove('hidden');
+
+      const configs = {
+        success: {
+          icon: `<svg class="w-5 h-5 text-emerald-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>`,
+          color: 'text-emerald-400',
+        },
+        error: {
+          icon: `<svg class="w-5 h-5 text-red-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/></svg>`,
+          color: 'text-red-400',
+        },
+        loading: {
+          icon: `<svg class="w-5 h-5 text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>`,
+          color: 'text-blue-400',
+        },
+      };
+
+      const config = configs[type] || configs.loading;
+      icon.innerHTML = config.icon;
+      text.textContent = message;
+      text.className = `text-sm ${config.color}`;
+
+      if (type !== 'loading') {
+        setTimeout(() => feedback.classList.add('hidden'), 4000);
+      }
+    }
+
+    // ─── Event Log ────────────────────────────────────
+    function addLog(message, type = 'info') {
+      const log = document.getElementById('event-log');
+
+      // Remove placeholder
+      const placeholder = log.querySelector('p.text-gray-600');
+      if (placeholder) placeholder.remove();
+
+      const colors = {
+        info: 'text-gray-400',
+        success: 'text-emerald-400',
+        error: 'text-red-400',
+        warning: 'text-yellow-400',
+        data: 'text-blue-400',
+        action: 'text-purple-400',
+      };
+
+      const icons = {
+        info: '●',
+        success: '✓',
+        error: '✗',
+        warning: '⚠',
+        data: '↓',
+        action: '→',
+      };
+
+      const now = new Date().toLocaleTimeString('ja-JP');
+      const entry = document.createElement('div');
+      entry.className = `log-entry flex items-start gap-2 text-xs`;
+      entry.innerHTML = `
+        <span class="text-gray-600 tabular-nums shrink-0 mt-0.5">${now}</span>
+        <span class="${colors[type] || colors.info} shrink-0">${icons[type] || '●'}</span>
+        <span class="text-gray-300">${escapeHtml(message)}</span>
+      `;
+
+      log.insertBefore(entry, log.firstChild);
+
+      // Limit entries
+      while (log.children.length > MAX_LOG_ENTRIES) {
+        log.removeChild(log.lastChild);
+      }
+    }
+
+    // ─── Session Timer ────────────────────────────────
+    function startSessionTimer() {
+      sessionTimer = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - sessionStartTime) / 1000);
+        const h = Math.floor(elapsed / 3600).toString().padStart(2, '0');
+        const m = Math.floor((elapsed % 3600) / 60).toString().padStart(2, '0');
+        const s = (elapsed % 60).toString().padStart(2, '0');
+        document.getElementById('session-time').textContent = `${h}:${m}:${s}`;
+      }, 1000);
+    }
+
+    function stopSessionTimer() {
+      if (sessionTimer) {
+        clearInterval(sessionTimer);
+        sessionTimer = null;
+      }
+      document.getElementById('session-time').textContent = '00:00:00';
+    }
+
+    // ─── Utils ────────────────────────────────────────
+    function escapeHtml(str) {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+  </script>
+
+  <!-- Flowbite JS -->
+  <script src="https://cdn.jsdelivr.net/npm/flowbite@3.1.2/dist/flowbite.min.js"></script>
+</body>
+</html>

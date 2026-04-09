@@ -31,7 +31,7 @@ status = :stopped
 pre_detected = false
 
 while true do
-  topic, payload = client.receive(timeout: 0.01)
+  topic, payload = client.receive(timeout: 0.005)
   if topic
     message = JSON.parse(payload)
     case message['action']
@@ -50,7 +50,7 @@ while true do
   detected = distance < 100
   if !pre_detected && detected
     print 'Detect the ball'
-    client.publish("pico-factory/device/#{Machine.unique_id}", "{ \"timestamp\": \"#{Time.now}\" }")
+    client.publish("pico-factory/device/#{Machine.unique_id}", "{ \"timestamp\": #{Time.now.to_i} }")
     puts ' -> Published'
   end
   pre_detected = detected
