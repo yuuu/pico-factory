@@ -1,0 +1,26 @@
+diff --git a/build_config/xtensa-esp.rb b/build_config/xtensa-esp.rb
+index 0104436..26f98b1 100644
+--- a/build_config/xtensa-esp.rb
++++ b/build_config/xtensa-esp.rb
+@@ -21,6 +21,7 @@ MRuby::CrossBuild.new("esp32") do |conf|
+   conf.cc.defines << "PICORB_INT64"
+   conf.cc.defines << "NDEBUG"
+   conf.cc.defines << "CONFIG_ESP_WIFI_ENABLED" unless ENV['CONFIG_ESP_WIFI_ENABLED'].to_s.empty?
++  conf.cc.defines << "MAX_SYMBOLS_COUNT=2000"
+ 
+   conf.femtoruby(alloc_libc: false)
+   conf.gembox 'minimum'
+@@ -31,6 +32,7 @@ MRuby::CrossBuild.new("esp32") do |conf|
+   conf.gem core: 'picoruby-rng'
+   conf.gem core: 'picoruby-base64'
+   conf.gem core: 'picoruby-yaml'
++  conf.gem core: 'picoruby-json'
+ 
+   # peripherals
+   conf.gem core: 'picoruby-gpio'
+@@ -49,4 +51,5 @@ MRuby::CrossBuild.new("esp32") do |conf|
+   conf.gem core: 'picoruby-net-mqtt'
+   conf.gem core: 'picoruby-adafruit_sk6812'
+   conf.gem core: 'picoruby-net-ntp'
++  conf.gem github: 'bash0C7/picoruby-vl53l0x', branch: 'main'
+ end

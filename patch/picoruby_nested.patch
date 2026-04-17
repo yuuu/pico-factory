@@ -1,0 +1,26 @@
+diff --git a/mrbgems/picoruby-net-mqtt/mrblib/mqtt.rb b/mrbgems/picoruby-net-mqtt/mrblib/mqtt.rb
+index 140d6126..4bfe3ed5 100644
+--- a/mrbgems/picoruby-net-mqtt/mrblib/mqtt.rb
++++ b/mrbgems/picoruby-net-mqtt/mrblib/mqtt.rb
+@@ -146,7 +146,7 @@ module Net
+               @last_ping = Time.now
+             end
+           else
+-            sleep_ms 100 unless deadline && Time.now.to_f >= deadline
++            sleep_ms 10 unless deadline && Time.now.to_f >= deadline
+           end
+         end
+ 
+diff --git a/mrbgems/picoruby-shell/shell_executables/wifi_connect.rb b/mrbgems/picoruby-shell/shell_executables/wifi_connect.rb
+index 85883c2c..3932a4d1 100644
+--- a/mrbgems/picoruby-shell/shell_executables/wifi_connect.rb
++++ b/mrbgems/picoruby-shell/shell_executables/wifi_connect.rb
+@@ -113,7 +113,7 @@ end
+ 
+ retry_if_failed = config["wifi"]["retry_if_failed"]
+ begin
+-  puts "Connecting to WiFi network: #{ssid}. Timeout in 10 seconds..."
++  #puts "Connecting to WiFi network: #{ssid}. Timeout in 10 seconds..."
+ 
+   while true
+     connected = Network::WiFi.connect_timeout(ssid, password, auth, 10) # seconds
