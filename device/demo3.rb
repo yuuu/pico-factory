@@ -43,6 +43,9 @@ while true do
       motor_forward.duty(0)
       status = :stop
       puts "Status: #{status}"
+    when 'reboot'
+      puts "Rebooting..."
+      Machine.reboot
     end
   end
 
