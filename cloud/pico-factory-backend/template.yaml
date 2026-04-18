@@ -190,30 +190,29 @@ Resources:
             Method: post
 
   # ─────────────────────────────────────────
-  # Lambda: IoT Rule to DynamoDB Writer
+  # IAM Role: IoT Rule to DynamoDB
   # ─────────────────────────────────────────
-  IotHandlerFunction:
-    Type: AWS::Serverless::Function
+  IoTRuleDynamoDBRole:
+    Type: AWS::IAM::Role
     Properties:
-      CodeUri: iot_handler/
-      Handler: app.lambda_handler
-      Environment:
-        Variables:
-          RECORDS_TABLE: !Ref RecordsTable
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: iot.amazonaws.com
+            Action: sts:AssumeRole
       Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref RecordsTable
-
-  IotHandlerPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref IotHandlerFunction
-      Principal: iot.amazonaws.com
-      SourceArn: !GetAtt IoTRule.Arn
+        - PolicyName: IoTRuleDynamoDBPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt RecordsTable.Arn
 
   # ─────────────────────────────────────────
-  # IoT Rule: MQTT to Lambda to DynamoDB
+  # IoT Rule: MQTT to DynamoDB (v2)
   # ─────────────────────────────────────────
   IoTRule:
     Type: AWS::IoT::TopicRule
@@ -223,8 +222,10 @@ Resources:
         Sql: "SELECT *, topic(3) AS device_id, (timestamp() / 1000 + 86400) AS ttl FROM 'pico-factory/device/+'"
         RuleDisabled: false
         Actions:
-          - Lambda:
-              FunctionArn: !GetAtt IotHandlerFunction.Arn
+          - DynamoDBv2:
+              PutItem:
+                TableName: !Ref RecordsTable
+              RoleArn: !GetAtt IoTRuleDynamoDBRole.Arn
 
   # ─────────────────────────────────────────
   # S3: Frontend Static File Hosting
