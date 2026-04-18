@@ -42,8 +42,8 @@ end
 
 def handle_publish(body)
   action = body['action']
-  unless %w[start stop].include?(action)
-    return cors_response(400, { error: "Invalid action. Must be 'start' or 'stop'" })
+  unless %w[start stop reboot].include?(action)
+    return cors_response(400, { error: "Invalid action. Must be 'start', 'stop', or 'reboot'" })
   end
 
   client = Aws::IoTDataPlane::Client.new(endpoint: iot_endpoint)

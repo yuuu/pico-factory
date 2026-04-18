@@ -110,6 +110,15 @@
       transform: translateY(-1px);
       box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
     }
+    .btn-reboot {
+      background: linear-gradient(135deg, #0284c7, #38bdf8);
+      transition: all 0.2s;
+    }
+    .btn-reboot:hover:not(:disabled) {
+      background: linear-gradient(135deg, #0369a1, #0284c7);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 15px rgba(56, 189, 248, 0.4);
+    }
 
     button:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
 
@@ -257,6 +266,18 @@
             <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd" />
           </svg>
           停止
+        </button>
+
+        <!-- Reboot Button -->
+        <button
+          id="btn-reboot"
+          onclick="publishAction('reboot')"
+          class="btn-reboot flex items-center gap-2.5 px-6 py-3 rounded-xl text-white font-semibold text-sm"
+        >
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          再起動
         </button>
 
         <!-- Clear Button -->
@@ -618,8 +639,9 @@
         return;
       }
 
+      const actionLabel = { start: '開始', stop: '停止', reboot: '再起動' }[action] || action;
       setButtonsDisabled(true);
-      showFeedback('loading', `"${action === 'start' ? '開始' : '停止'}" コマンドを送信中...`);
+      showFeedback('loading', `"${actionLabel}" コマンドを送信中...`);
 
       try {
         const resp = await fetch(`${apiUrl}/publish`, {
@@ -692,7 +714,7 @@
     }
 
     function setButtonsDisabled(disabled) {
-      ['btn-start', 'btn-stop', 'btn-clear'].forEach(id => {
+      ['btn-start', 'btn-stop', 'btn-reboot', 'btn-clear'].forEach(id => {
         document.getElementById(id).disabled = disabled;
       });
     }
