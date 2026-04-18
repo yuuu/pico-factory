@@ -33,6 +33,8 @@
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
@@ -587,7 +589,6 @@
       chart = new Chart(ctx, {
         type: 'line',
         data: {
-          labels: [],
           datasets: [{
             label: 'Count',
             data: [],
@@ -607,8 +608,13 @@
           plugins: { legend: { display: false } },
           scales: {
             x: {
+              type: 'time',
+              time: {
+                tooltipFormat: 'HH:mm:ss',
+                displayFormats: { second: 'HH:mm:ss', minute: 'HH:mm', hour: 'HH:mm' },
+              },
               grid: { color: 'rgba(255,255,255,0.04)' },
-              ticks: { color: '#6b7280', font: { size: 10 }, maxRotation: 0 }
+              ticks: { color: '#6b7280', font: { size: 10 }, maxRotation: 0, maxTicksLimit: 6 }
             },
             y: {
               grid: { color: 'rgba(255,255,255,0.04)' },
@@ -621,12 +627,9 @@
     }
 
     function updateChart(count, time) {
-      const label = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      chart.data.labels.push(label);
-      chart.data.datasets[0].data.push(count);
+      chart.data.datasets[0].data.push({ x: time, y: count });
 
-      if (chart.data.labels.length > MAX_CHART_POINTS) {
-        chart.data.labels.shift();
+      if (chart.data.datasets[0].data.length > MAX_CHART_POINTS) {
         chart.data.datasets[0].data.shift();
       }
       chart.update();
