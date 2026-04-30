@@ -1,125 +1,260 @@
 # pico-factory-backend
 
-This project contains source code and supporting files for a serverless application that you can deploy with the SAM CLI. It includes the following files and folders.
+> **Demo project for RubyKaigi 2026 talk:**
+> [PicoRuby for IoT: Connecting to the Cloud with MQTT](https://rubykaigi.org/2026/presentations/Y_uuu.html)
 
-- hello_world - Code for the application's Lambda function.
-- events - Invocation events that you can use to invoke the function.
-- tests - Unit tests for the application code.
-- template.yaml - A template that defines the application's AWS resources.
+A serverless backend that receives data from IoT devices via AWS IoT Core, stores records in DynamoDB, and delivers real-time updates to a browser dashboard over WebSocket. All AWS resources are managed with AWS SAM.
 
-The application uses several AWS resources, including Lambda functions and an API Gateway API. These resources are defined in the `template.yaml` file in this project. You can update the template to add AWS resources through the same deployment process that updates your application code.
+## Architecture
 
-If you prefer to use an integrated development environment (IDE) to build and test your application, you can use the AWS Toolkit.
-The AWS Toolkit is an open source plug-in for popular IDEs that uses the SAM CLI to build and deploy serverless applications on AWS. The AWS Toolkit also adds a simplified step-through debugging experience for Lambda function code. See the following links to get started.
+```
+[IoT Device]
+     |
+     | MQTT (pico-factory/device/{device_id})
+     v
+[AWS IoT Core]
+     |
+     | IoT Rule: SELECT *, topic(3) AS device_id, (timestamp()/1000 + 86400) AS ttl
+     |           FROM 'pico-factory/device/+'
+     v
+[DynamoDB: records table]
+     |
+     | DynamoDB Streams
+     v
+[Lambda: stream_notifier]
+     |
+     | WebSocket Push  {"count": N}
+     v
+[API Gateway WebSocket] <-----> [Browser Dashboard (S3 + CloudFront)]
+                                        |
+                             REST API (POST /publish, POST /clear)
+                                        |
+                               [Lambda: api_handler]
+                                   |            |
+                         [AWS IoT Core]    [DynamoDB: records]
+                         (publish action)  (delete all records)
+```
 
-* [CLion](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [GoLand](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [IntelliJ](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [WebStorm](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [Rider](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [PhpStorm](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [PyCharm](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [RubyMine](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [DataGrip](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [VS Code](https://docs.aws.amazon.com/toolkit-for-vscode/latest/userguide/welcome.html)
-* [Visual Studio](https://docs.aws.amazon.com/toolkit-for-visual-studio/latest/user-guide/welcome.html)
+## Components
 
-## Deploy the sample application
+| Component | AWS Service | Responsibility |
+|---|---|---|
+| Frontend | S3 + CloudFront | Static HTML/JS hosting |
+| WebSocket API | API Gateway v2 (WebSocket) | Bidirectional browser communication |
+| Connection manager | Lambda (`ws_handler`) | Save/delete connectionId on connect/disconnect |
+| Push notifier | Lambda (`stream_notifier`) | Broadcast DynamoDB changes to all connected clients |
+| REST API | Lambda (`api_handler`) | IoT publish, DynamoDB clear |
+| Data store | DynamoDB (`records`) | IoT message storage (Streams enabled) |
+| Connection store | DynamoDB (`connections`) | WebSocket connectionId management |
+| Data ingestion | AWS IoT Core + IoT Rule | MQTT message → DynamoDB write |
+| IaC | AWS SAM | Resource definition and deployment |
 
-The Serverless Application Model Command Line Interface (SAM CLI) is an extension of the AWS CLI that adds functionality for building and testing Lambda applications. It uses Docker to run your functions in an Amazon Linux environment that matches Lambda. It can also emulate your application's build environment and API.
+## Directory Structure
 
-To use the SAM CLI, you need the following tools.
+```
+pico-factory-backend/
+├── template.yaml          # AWS SAM template (all resource definitions)
+├── samconfig.toml         # SAM CLI deployment config
+├── Gemfile                # Shared dependencies
+├── ws_handler/            # Lambda: WebSocket connection management
+│   ├── app.rb
+│   └── Gemfile
+├── stream_notifier/       # Lambda: DynamoDB Streams → WebSocket push
+│   ├── app.rb
+│   └── Gemfile
+├── api_handler/           # Lambda: REST API (IoT publish / clear)
+│   ├── app.rb
+│   └── Gemfile
+├── tests/
+│   └── unit/
+│       └── test_handler.rb
+└── events/                # Sample events for sam local invoke
+```
 
-* SAM CLI - [Install the SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-install.html)
-* Ruby - [Install Ruby 3.4](https://www.ruby-lang.org/en/documentation/installation/)
-* Docker - [Install Docker community edition](https://hub.docker.com/search/?type=edition&offering=community)
+## Prerequisites
 
-To build and deploy your application for the first time, run the following in your shell:
+- [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html) with credentials configured
+- [SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-install.html)
+- [Ruby 3.4](https://www.ruby-lang.org/en/documentation/installation/)
+- [Docker](https://hub.docker.com/search/?type=edition&offering=community) (for local testing)
+
+## Deployment
+
+### First deployment
 
 ```bash
 sam build
 sam deploy --guided
 ```
 
-The first command will build the source of your application. The second command will package and deploy your application to AWS, with a series of prompts:
+`--guided` walks you through the configuration interactively:
 
-* **Stack Name**: The name of the stack to deploy to CloudFormation. This should be unique to your account and region, and a good starting point would be something matching your project name.
-* **AWS Region**: The AWS region you want to deploy your app to.
-* **Confirm changes before deploy**: If set to yes, any change sets will be shown to you before execution for manual review. If set to no, the AWS SAM CLI will automatically deploy application changes.
-* **Allow SAM CLI IAM role creation**: Many AWS SAM templates, including this example, create AWS IAM roles required for the AWS Lambda function(s) included to access AWS services. By default, these are scoped down to minimum required permissions. To deploy an AWS CloudFormation stack which creates or modifies IAM roles, the `CAPABILITY_IAM` value for `capabilities` must be provided. If permission isn't provided through this prompt, to deploy this example you must explicitly pass `--capabilities CAPABILITY_IAM` to the `sam deploy` command.
-* **Save arguments to samconfig.toml**: If set to yes, your choices will be saved to a configuration file inside the project, so that in the future you can just re-run `sam deploy` without parameters to deploy changes to your application.
+| Prompt | Recommended value |
+|---|---|
+| Stack Name | `pico-factory-backend` |
+| AWS Region | e.g. `ap-northeast-1` |
+| Confirm changes before deploy | `y` |
+| Allow SAM CLI IAM role creation | `y` |
+| Save arguments to samconfig.toml | `y` |
 
-You can find your API Gateway Endpoint URL in the output values displayed after deployment.
-
-## Use the SAM CLI to build and test locally
-
-Build your application with the `sam build` command.
+Settings are saved to `samconfig.toml`, so subsequent deploys only need:
 
 ```bash
-pico-factory-backend$ sam build
+sam build
+sam deploy
 ```
 
-The SAM CLI installs dependencies defined in `hello_world/Gemfile`, creates a deployment package, and saves it in the `.aws-sam/build` folder.
+### Stack outputs
 
-Test a single function by invoking it directly with a test event. An event is a JSON document that represents the input that the function receives from the event source. Test events are included in the `events` folder in this project.
+After deployment, the following values are printed. Use them to configure the frontend.
 
-Run functions locally and invoke them with the `sam local invoke` command.
+| Output key | Description |
+|---|---|
+| `WebSocketUrl` | WebSocket endpoint (`wss://...`) |
+| `RestApiEndpoint` | REST API base URL |
+| `FrontendUrl` | CloudFront distribution URL |
+| `FrontendBucketName` | S3 bucket for frontend files |
+
+### Upload the frontend
 
 ```bash
-pico-factory-backend$ sam local invoke HelloWorldFunction --event events/event.json
+aws s3 sync ./frontend s3://{FrontendBucketName} --delete
 ```
 
-The SAM CLI can also emulate your application's API. Use the `sam local start-api` to run the API locally on port 3000.
+## API Reference
+
+### WebSocket API
+
+**Endpoint**: `wss://{api-id}.execute-api.{region}.amazonaws.com/prod`
+
+| Route | Behavior |
+|---|---|
+| `$connect` | Saves connectionId to `connections` table (TTL: 2 hours) |
+| `$disconnect` | Removes connectionId from `connections` table |
+
+**Server → Client push message**
+
+```json
+{"count": 123}
+```
+
+Total record count from the `records` table, broadcast to all connected clients whenever a new record is inserted.
+
+### REST API
+
+#### `POST /publish` — Send a command to IoT devices
 
 ```bash
-pico-factory-backend$ sam local start-api
-pico-factory-backend$ curl http://localhost:3000/
+curl -X POST {RestApiEndpoint}/publish \
+  -H 'Content-Type: application/json' \
+  -d '{"action": "start"}'
 ```
 
-The SAM CLI reads the application template to determine the API's routes and the functions that they invoke. The `Events` property on each function's definition includes the route and method for each path.
+Valid `action` values: `start` / `stop` / `reboot`
 
-```yaml
-      Events:
-        HelloWorld:
-          Type: Api
-          Properties:
-            Path: /hello
-            Method: get
-```
+Publishes the payload to the IoT topic `pico-factory/action`.
 
-## Add a resource to your application
-The application template uses AWS Serverless Application Model (AWS SAM) to define application resources. AWS SAM is an extension of AWS CloudFormation with a simpler syntax for configuring common serverless application resources such as functions, triggers, and APIs. For resources not included in [the SAM specification](https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md), you can use standard [AWS CloudFormation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-template-resource-type-ref.html) resource types.
-
-## Fetch, tail, and filter Lambda function logs
-
-To simplify troubleshooting, SAM CLI has a command called `sam logs`. `sam logs` lets you fetch logs generated by your deployed Lambda function from the command line. In addition to printing the logs on the terminal, this command has several nifty features to help you quickly find the bug.
-
-`NOTE`: This command works for all AWS Lambda functions; not just the ones you deploy using SAM.
+#### `POST /clear` — Delete all records
 
 ```bash
-pico-factory-backend$ sam logs -n HelloWorldFunction --stack-name pico-factory-backend --tail
+curl -X POST {RestApiEndpoint}/clear \
+  -H 'Content-Type: application/json' \
+  -d '{}'
 ```
 
-You can find more information and examples about filtering Lambda function logs in the [SAM CLI Documentation](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-logging.html).
+Deletes all items from the `records` table.
 
-## Unit tests
+## IoT Topic Design
 
-Tests are defined in the `tests` folder in this project.
+| Topic | Direction | Purpose |
+|---|---|---|
+| `pico-factory/device/{device_id}` | Device → Cloud | Measurement data |
+| `pico-factory/action` | Cloud → Device | start / stop / reboot commands |
+
+**Device payload**:
+
+```json
+{"timestamp": 1234567890}
+```
+
+The IoT Rule transforms and writes this to DynamoDB using:
+
+```sql
+SELECT *, topic(3) AS device_id, (timestamp() / 1000 + 86400) AS ttl
+FROM 'pico-factory/device/+'
+```
+
+## DynamoDB Table Design
+
+### `records` table
+
+| Field | Value |
+|---|---|
+| Partition key | `device_id` (String) |
+| Sort key | `timestamp` (Number) |
+| Streams | Enabled (`NEW_IMAGE`) |
+| TTL | `ttl` attribute — auto-deleted 1 day after ingestion |
+
+### `connections` table
+
+| Field | Value |
+|---|---|
+| Partition key | `connectionId` (String) |
+| TTL | `ttl` attribute — auto-deleted 2 hours after connection |
+
+## Local Development
+
+### Unit tests
 
 ```bash
-pico-factory-backend$ ruby tests/unit/test_handler.rb
+ruby tests/unit/test_handler.rb
 ```
 
-## Cleanup
+### Invoke a Lambda function locally
 
-To delete the sample application that you created, use the AWS CLI. Assuming you used your project name for the stack name, you can run the following:
+```bash
+sam local invoke WsHandlerFunction --event events/event.json
+sam local invoke StreamNotifierFunction --event events/event.json
+sam local invoke ApiHandlerFunction --event events/event.json
+```
+
+### Run the REST API locally
+
+```bash
+sam local start-api
+curl -X POST http://localhost:3000/publish -d '{"action": "start"}'
+```
+
+### Tail Lambda logs
+
+```bash
+sam logs -n WsHandlerFunction --stack-name pico-factory-backend --tail
+sam logs -n StreamNotifierFunction --stack-name pico-factory-backend --tail
+sam logs -n ApiHandlerFunction --stack-name pico-factory-backend --tail
+```
+
+## Teardown
+
+If the S3 bucket contains objects, empty it first:
+
+```bash
+aws s3 rm s3://{FrontendBucketName} --recursive
+```
+
+Then delete the stack:
 
 ```bash
 sam delete --stack-name pico-factory-backend
 ```
 
-## Resources
+## Cost Estimate (small scale)
 
-See the [AWS SAM developer guide](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/what-is-sam.html) for an introduction to SAM specification, the SAM CLI, and serverless application concepts.
+| Service | Billing dimension | Estimate |
+|---|---|---|
+| Lambda | Invocations + duration | Within free tier |
+| DynamoDB | Read/write capacity | Pay-per-request |
+| API Gateway (WebSocket) | Connection minutes + messages | $0.25 / 1M connection-minutes |
+| IoT Core | Messages | $0.08 / 1M messages |
+| S3 + CloudFront | Storage + transfer | Within free tier |
 
-Next, you can use AWS Serverless Application Repository to deploy ready to use Apps that go beyond hello world samples and learn how authors developed their applications: [AWS Serverless Application Repository main page](https://aws.amazon.com/serverless/serverlessrepo/)
+For small-scale PoC usage, total cost is typically a few dollars per month or less.
